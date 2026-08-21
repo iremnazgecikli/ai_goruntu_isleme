@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 2
+names: ['cuzdan', 'kredi karti']
+
+roboflow:
+  workspace: irem-naz
+  project: wallet-and-credit-card-detector
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/irem-naz/wallet-and-credit-card-detector/dataset/1

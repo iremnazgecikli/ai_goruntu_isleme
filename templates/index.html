@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Staj Projesi - Roboflow Canlı Nesne Tanıma</title>
+    <style>
+        body {
+            background-color: #f4f4f9;
+            text-align: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 15px;
+        }
+        h1 { color: #333; font-size: 22px; margin-bottom: 5px; }
+        #status { font-size: 14px; font-weight: bold; color: #555; margin-bottom: 10px; }
+        
+        .video-container {
+            position: relative;
+            margin: 0 auto;
+            display: inline-block;
+            border: 3px solid #333;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            background: #222;
+            width: 480px;
+            height: 360px;
+        }
+        
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .error-msg {
+            color: red;
+            background: #ffcccc;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Yapay Zeka Nesne Tanıma (Roboflow)</h1>
+    <div id="status">Kameraya İzin Veriliyor...</div>
+    
+    <div class="video-container">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="output"></canvas>
+    </div>
+    
+    <div id="errorBox" class="error-msg"></div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const errorBox = document.getElementById('errorBox');
+
+        // Kamerayı Başlat
+        navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 }, audio: false })
+            .then(stream => {
+                video.srcObject = stream;
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    statusDiv.innerText = "Kamera Aktif, Model Taramaya Başlıyor...";
+                    sendFrameLoop();
+                });
+            })
+            .catch(err => {
+                showError("Kamera Hatası: " + err.message);
+            });
+
+        // Her saniye Flask sunucusuna (Roboflow'a) kare gönder
+        function sendFrameLoop() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            const base64Image = tempCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+            fetch('/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64Image })
+            })
+            .then(response => response.json())
+            .then(data => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                if (data.predictions) {
+                    data.predictions.forEach(pred => {
+                        const x = pred.x - pred.width / 2;
+                        const y = pred.y - pred.height / 2;
+                        
+                        // Kutuyu çiz
+                        ctx.beginPath();
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = '#00FF66';
+                        ctx.rect(x, y, pred.width, pred.height);
+                        ctx.stroke();
+                        
+                        // Yazı
+                        ctx.font = 'bold 14px Arial';
+                        const text = `${pred.class} (%${Math.round(pred.confidence * 100)})`;
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        ctx.fillRect(x, y - 22, ctx.measureText(text).width + 10, 22);
+                        
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillText(text, x + 5, y - 6);
+                    });
+                }
+                // Döngüyü sürdür (yaklaşık saniyede bir veya iki kez istek atar)
+                setTimeout(sendFrameLoop, 300);
+            })
+            .catch(err => {
+                console.error("Tahmin hatası:", err);
+                setTimeout(sendFrameLoop, 1000);
+            });
+        }
+
+        function showError(message) {
+            errorBox.innerText = message;
+            errorBox.style.display = 'block';
+            statusDiv.innerText = "HATA Oluştu";
+        }
+    </script>
+</body>
+</html>
